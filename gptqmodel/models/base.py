@@ -83,6 +83,8 @@ class BaseGPTQModel(nn.Module):
         qlinear_kernel: nn.Module = None,
     ):
         super().__init__()
+        logger.info(f"start base")
+
 
         self.model = model
         self.model_type = self.model.config.model_type
@@ -157,10 +159,10 @@ class BaseGPTQModel(nn.Module):
             calibration_enable_gpu_cache: bool = True,
     ):
         if isinstance(self.quantize_config, AutoRoundQuantizeConfig):
-            self._quantize(calibration_dataset, batch_size, calibration_enable_gpu_cache)
+            return self._quantize(calibration_dataset, batch_size, calibration_enable_gpu_cache)
         else:
             with torch.inference_mode():
-                self._quantize(calibration_dataset, batch_size, calibration_enable_gpu_cache)
+                return self._quantize(calibration_dataset, batch_size, calibration_enable_gpu_cache)
 
     def _quantize(
         self,
@@ -168,6 +170,7 @@ class BaseGPTQModel(nn.Module):
         batch_size: int = 1,
         calibration_enable_gpu_cache: bool = True,
     ):
+        logger.info(f"start quant")
         if self.quantized:
             raise EnvironmentError("quantize() is called a model that is already quantized")
 
@@ -506,11 +509,13 @@ class BaseGPTQModel(nn.Module):
                 [],
             )  # TODO: is it really OK to cache only the first positional argument?
             torch.cuda.empty_cache()
-
         logger.info(f"Quantization summary:\n{quant_log}")
         for module_log in quant_log:
             logger.info(module_log)
 
+        return quant_log, quantizers, force_layer_back_to_cpu, device_map, forward_pass_use_cache
+
+    def pack(self, quant_log, quantizers, force_layer_back_to_cpu, device_map, forward_pass_use_cache):
         self.qlinear_kernel = pack_model(
             model=self.model,
             quantizers=quantizers,
