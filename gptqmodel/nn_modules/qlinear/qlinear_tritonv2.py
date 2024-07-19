@@ -68,19 +68,22 @@ class TritonV2QuantLinear(BaseQuantLinear, TritonModuleMixin):
 
     def pack(self, linear, scales, zeros, g_idx=None):
         W = linear.weight.data.clone()
+        logger.info(f"{linear.weight.data.is_leaf} {W.is_leaf}")
         if isinstance(linear, nn.Conv2d):
             W = W.flatten(1)
         if isinstance(linear, transformers.pytorch_utils.Conv1D):
             W = W.t()
 
         self.g_idx = g_idx.clone() if g_idx is not None else self.g_idx
+        logger.info(f"{g_idx.is_leaf} {self.g_idx.is_leaf}")
 
         scales = scales.t().contiguous()
         zeros = zeros.t().contiguous()
         scale_zeros = zeros * scales
         self.scales = scales.clone().half()
         if linear.bias is not None:
-            self.bias = linear.bias.clone().half()
+            self.bias = linear.bias.detach().clone().half()
+            logger.info(f"{linear.bias.is_leaf} {self.bias.is_leaf}")
 
         intweight = []
         for idx in range(self.infeatures):

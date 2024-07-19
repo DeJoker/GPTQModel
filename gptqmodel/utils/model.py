@@ -251,6 +251,24 @@ def select_quant_linear_with_pack(bits: int,
     )
     return QuantLinear
 
+def pack_layer(quantizer, qlayer, layer, QuantLinear):
+    with tctl.threadpool_limits(limits=1):
+        _quantizer, scale, zero, g_idx = quantizer
+        # so far can only pack layer on CPU
+        layer_device = qlayer.device
+        qlayer.to(CPU)
+        layer, scale, zero, g_idx = (
+            layer.to(CPU),
+            scale.to(CPU),
+            zero.to(CPU),
+            g_idx.to(CPU),
+        )
+        if QuantLinear is MarlinQuantLinear:
+            qlayer.pack(layer, scale)
+        else:
+            qlayer.pack(layer, scale, zero, g_idx)
+        qlayer.to(layer_device)
+
 def pack_model(
     model,
     quantizers,
@@ -291,39 +309,22 @@ def pack_model(
     qlayers = find_layers(model, [QuantLinear])
 
     # Limit pack() thread usage to avoid auto-parallizataion regression
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        # future_to_item = {executor.submit(pack_layer, quantizers[name], qlayers[name], layers[name], QuantLinear): name for name in qlayers.keys()}
-        # for future in tqdm(as_completed(future_to_item), total=len(qlayers.keys())):
-        #     item = future_to_item[future]
-        #     result = future.result()
-        #     print(f"Processed {item} to {result}")
-        futures = [(executor.submit(pack_layer, quantizers[name], qlayers[name], layers[name], QuantLinear), name) for name in qlayers.keys()]
-        for item in futures:
-            future, name = item
-            future.result()
-            print(f"{name} Processed")
-
+    with ThreadPoolExecutor(max_workers=64) as executor:
+        future_to_item = {executor.submit(pack_layer, quantizers[name], qlayers[name], layers[name], QuantLinear): name for name in qlayers.keys()}
+        for future in tqdm(as_completed(future_to_item), total=len(qlayers.keys())):
+            item = future_to_item[future]
+            result = future.result()
+            print(f"Processed {item} to {result}")
+        # futures = [(executor.submit(pack_layer, quantizers[name], qlayers[name], layers[name], QuantLinear), name) for name in qlayers.keys()]
+        # for item in futures:
+        #     future, name = item
+        #     future.result()
+        #     print(f"{name} Processed")
     logger.info("Model packed.")
 
     return QuantLinear
 
-def pack_layer(quantizer, qlayer, layer, QuantLinear):
-    with tctl.threadpool_limits(limits=1):
-        _quantizer, scale, zero, g_idx = quantizer
-        # so far can only pack layer on CPU
-        layer_device = qlayer.device
-        qlayer.to(CPU)
-        layer, scale, zero, g_idx = (
-            layer.to(CPU),
-            scale.to(CPU),
-            zero.to(CPU),
-            g_idx.to(CPU),
-        )
-        if QuantLinear is MarlinQuantLinear:
-            qlayer.pack(layer, scale)
-        else:
-            qlayer.pack(layer, scale, zero, g_idx)
-        qlayer.to(layer_device)
+
 
 
 def verify_model_hash(file_path: str, verify_hash: str):
